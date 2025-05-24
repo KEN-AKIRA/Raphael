@@ -1,0 +1,974 @@
+import os
+import re
+import tkinter as tk
+from PIL import Image, ImageTk
+import time
+import random
+from energy_ui import EnergyUI
+from groq_client import ask_groq
+import threading
+import requests
+from pydub import AudioSegment
+from pydub.playback import play
+import io
+import pygame
+import tempfile
+
+pygame.mixer.init()
+
+
+
+
+# === KONFIGURASI ===
+IDLE_FOLDER = "idle_frames"
+DRAG_FOLDER = "drag_frames"
+EYE_MOVE_FOLDER = "eye_move_frames"
+FALL_FOLDER = "fall_frames"
+#START_FOLDER = "start_frames"
+WALK_LEFT_FOLDER = "walk_left_frames"
+WALK_RIGHT_FOLDER = "walk_right_frames"
+PINCH_LOOP_FOLDER = "pinch_loop_frames"
+PINCH_RELEASE_FOLDER = "pinch_release_frames"
+CRAWL_LEFT_FOLDER = "crawl_left_frames"  # Folder untuk animasi crawl kiri
+CRAWL_RIGHT_FOLDER = "crawl_right_frames" 
+CRAWL_POST_LEFT_FOLDER = "crawl_post_left_frames"
+CRAWL_PREP_LEFT_FOLDER = "crawl_prep_left_frames"
+CRAWL_PREP_RIGHT_FOLDER = "crawl_prep_right_frames"
+CRAWL_POST_RIGHT_FOLDER = "crawl_post_right_frames"
+EAT_FOLDER = "eat_frames"
+DRINK_FOLDER = "drink_frames"
+DIZZY_FOLDER = "dizzy_frames"
+SHY_FOLDER = "shy_frames"
+TIRED_FOLDER = "tired_frames"
+FAINT_FOLDER = "faint_frames"
+SLEEP_FOLDER = "sleep_frames"
+SLEEP_POST_FOLDER = "sleep_post_frames"
+MOUTH_TALK_FOLDER = "mouth_talk_frames"
+
+
+
+
+
+FRAME_DURATION = 200
+SCALE = 0.3
+DRAG_LOOP_COUNT = 1
+EYE_MOVE_LOOP = 20
+IDLE_TIMEOUT = 80_000
+WAIT_BEFORE_RIGHT = 80_000
+CRAWL_TIMEOUT = 80_000
+MOVE_STEP = 30
+
+last_interaction_time = time.time()
+
+# === FUNGSI LOAD FRAME ===
+def load_frames(folder):
+    frames = []
+    
+    def extract_number(filename):
+        match = re.search(r'\d+', filename)
+        return int(match.group()) if match else 0
+
+    files = sorted([f for f in os.listdir(folder) if f.endswith(".png")], key=extract_number)
+
+    for filename in files:
+        filepath = os.path.join(folder, filename)
+        try:
+            print(f"Loading: {filename}")
+            img = Image.open(filepath).convert("RGBA")
+            img = img.resize((int(img.width * SCALE), int(img.height * SCALE)), Image.Resampling.LANCZOS)
+            frames.append(ImageTk.PhotoImage(img))
+        except Exception as e:
+            print(f"[ERROR] Gagal memuat {filename}: {e}")
+
+    return frames
+
+
+# === INISIALISASI TKINTER ===
+TRANSPARENT_COLOR = "black"
+root = tk.Tk()
+root.overrideredirect(True)
+root.wm_attributes("-topmost", True)
+root.configure(bg=TRANSPARENT_COLOR)
+root.wm_attributes("-transparentcolor", TRANSPARENT_COLOR)
+
+food_img = tk.PhotoImage(file="food.png")
+food_sprite = None  # nanti dipakai untuk menyimpan ID objek canvas
+
+
+# === LOAD FRAME ===
+idle_frames = load_frames(IDLE_FOLDER)
+drag_frames = load_frames(DRAG_FOLDER)
+eye_move_frames = load_frames(EYE_MOVE_FOLDER)
+fall_frames = load_frames(FALL_FOLDER)
+#start_frames = load_frames(START_FOLDER)
+walk_left_frames = load_frames(WALK_LEFT_FOLDER)
+walk_right_frames = load_frames(WALK_RIGHT_FOLDER)
+pinch_loop_frames = load_frames(PINCH_LOOP_FOLDER)
+pinch_release_frames = load_frames(PINCH_RELEASE_FOLDER)
+crawl_left_frames = load_frames(CRAWL_LEFT_FOLDER)
+crawl_right_frames = load_frames(CRAWL_RIGHT_FOLDER)
+crawl_prep_left_frames = load_frames(CRAWL_PREP_LEFT_FOLDER)
+crawl_post_left_frames = load_frames(CRAWL_POST_LEFT_FOLDER)
+crawl_prep_right_frames = load_frames(CRAWL_PREP_RIGHT_FOLDER)
+crawl_post_right_frames = load_frames(CRAWL_POST_RIGHT_FOLDER)
+eat_frames = load_frames(EAT_FOLDER)
+drink_frames = load_frames(DRINK_FOLDER)
+dizzy_frames = load_frames(DIZZY_FOLDER)
+shy_frames = load_frames(SHY_FOLDER)
+tired_frames = load_frames(TIRED_FOLDER)
+faint_frames = load_frames(FAINT_FOLDER)
+sleep_frames = load_frames(SLEEP_FOLDER)
+mouth_talk_frames = load_frames(MOUTH_TALK_FOLDER)
+
+
+
+# === SETUP CANVAS ===
+canvas = tk.Canvas(root, width=idle_frames[0].width(), height=idle_frames[0].height(),
+                   bg=TRANSPARENT_COLOR, highlightthickness=0)
+canvas.pack()
+sprite = canvas.create_image(0, 0, anchor="nw", image=idle_frames[0])
+
+# === 3. Inisialisasi UI Energi ===
+
+
+
+energy_ui = EnergyUI(root)  # ⬅️ PENGHUBUNG ENERGY_UI
+
+
+# === STATUS VARIABEL ===
+is_mouse_down = False
+frame_index = 0
+walk_frame_index = 0
+is_walking = False
+walk_direction = None
+waiting_to_walk_right = False
+is_falling = False
+fall_frame_index = 0
+#is_starting = True
+#start_frame_index = 0
+is_pinching = False
+pinch_loop_index = 0
+is_playing_pinch_release = False
+pinch_release_index = 0
+is_crawling = False  # Status merangkak
+crawl_frame_index = 0  # Index frame crawl
+crawl_direction = None  # arah crawl: kiri atau kanan
+is_crawling = False
+crawl_direction = "left"  # or "right"
+crawl_phase = None  # "prep", "loop", "post"
+is_eating = False
+eat_frame_index = 0
+is_drinking = False  # Status minum
+drink_frame_index = 0
+drink_sprite = None  # Untuk menyimpan objek minuman pada canvas
+is_dizzy = False
+dizzy_frame_index = 0
+is_shy = False
+shy_frame_index = 0
+is_tired = False
+is_fainted = False
+tired_frame_index = 0
+faint_frame_index = 0
+is_sleeping = False
+sleep_frame_index = 0
+is_talking = False
+mouth_talk_index = 0
+talk_end_time = 0
+
+
+
+
+# === DRAG-EYE LOOP VARIABEL ===
+drag_loop_counter = 0
+eye_loop_counter = 0
+eye_frame_index = 0
+drag_frame_index = 0
+current_mouse_anim = "drag"  # "drag" atau "eye"
+
+
+
+# === EVENT DRAG ===
+def start_move(event):
+    global is_mouse_down, last_interaction_time, is_falling, fall_frame_index
+    global drag_loop_counter, eye_loop_counter, eye_frame_index, drag_frame_index, current_mouse_anim
+    global is_pinching, pinch_loop_index, is_playing_pinch_release
+
+    is_mouse_down = True
+    last_interaction_time = time.time()
+    root.x = event.x_root
+    root.y = event.y_root
+    is_falling = False
+    fall_frame_index = 0
+
+    # Reset animasi siklus drag + eye
+    drag_loop_counter = 0
+    eye_loop_counter = 0
+    eye_frame_index = 0
+    drag_frame_index = 0
+    current_mouse_anim = "drag"
+
+    #Reset animasi pinching
+    is_pinching = False
+    is_playing_pinch_release = False
+    pinch_loop_index = 0
+    pinch_release_index = 0
+
+    # Deteksi cubit pipi
+    mouse_x = event.x
+    mouse_y = event.y
+    char_width = idle_frames[0].width()
+    char_height = idle_frames[0].height()
+
+    # Deteksi cubit pipi (area kiri atau kanan pipi)
+    if (char_width * 0.3 < mouse_x < char_width * 0.5) and \
+       (char_height * 0.3 < mouse_y < char_height * 0.5):
+
+        is_pinching = True
+        print("Cubit pipi terdeteksi!")
+        print(f"Mouse click at: x={mouse_x}, y={mouse_y}")
+        print(f"Karakter: width={char_width}, height={char_height}")
+
+
+def update_sprite_position(mouse_x, mouse_y):
+    char_width = idle_frames[0].width()
+    char_height = idle_frames[0].height()
+    
+    # Titik baju yang ingin ditempel ke kursor (di tengah bawah lengan)
+    baju_offset_x = char_width * 0.5
+    baju_offset_y = char_height * 0.30  # Sesuaikan jika kurang pas
+    
+    # Hitung posisi kiri atas gambar berdasarkan posisi mouse
+    image_x = mouse_x - baju_offset_x
+    image_y = mouse_y - baju_offset_y
+
+    canvas.coords(sprite, image_x, image_y)
+    print(f"Mouse: {mouse_x}, {mouse_y} | Image pos: {image_x}, {image_y}")
+
+
+    
+def do_move(event):
+    dx = event.x_root - root.x
+    dy = event.y_root - root.y
+    root.geometry(f"+{root.winfo_x() + dx}+{root.winfo_y() + dy}")
+    root.x = event.x_root
+    root.y = event.y_root
+
+def end_move(event):
+    global is_mouse_down, last_interaction_time,  is_pinching, is_playing_pinch_release
+    
+    is_mouse_down = False
+    last_interaction_time = time.time()
+
+    if is_pinching:
+        is_pinching = False
+        is_playing_pinch_release = True
+        return
+    start_fall()
+
+def start_fall():
+    global is_falling, fall_frame_index
+    is_falling = True
+    fall_frame_index = 0
+
+def start_crawl(direction):
+    global is_crawling, crawl_direction, crawl_phase, crawl_frame_index
+    is_crawling = True
+    crawl_direction = direction
+    crawl_phase = "prep"
+    crawl_frame_index = 0
+
+# Fungsi untuk menyesuaikan ukuran gambar makanan
+def load_food_image(image_path, target_width, target_height):
+    food_img = Image.open(image_path)
+    food_img = food_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    return ImageTk.PhotoImage(food_img)
+# Ukuran gambar makanan (disesuaikan dengan ukuran karakter)
+food_img = load_food_image("food.png", 30, 30)
+
+# Fungsi untuk menyesuaikan ukuran gambar makanan/minuman
+def load_drink_image(image_path, target_width, target_height):
+    drink_img = Image.open(image_path)
+    drink_img = drink_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    return ImageTk.PhotoImage(drink_img)
+
+# Ukuran gambar minuman (misal ukuran 40x40 disesuaikan dengan karakter)
+drink_img = load_drink_image("drink.png", 40, 40)
+
+
+
+def start_eating():
+    global is_eating, eat_frame_index, last_interaction_time, food_sprite
+    is_eating = True
+    eat_frame_index = 0
+    last_interaction_time = time.time()
+
+    # Dapatkan posisi karakter
+    coords = canvas.coords(sprite)
+    if coords:
+        x, y = coords
+        # Buat food muncul sedikit di bawah mulut karakter (atur sesuai karakter lo)
+        food_x = x + 10  # offset kanan dikit
+        food_y = y + 30  # offset bawah dikit
+        food_sprite = canvas.create_image(food_x, food_y, image=food_img, anchor=tk.NW)
+
+    update_eat_animation()
+
+    # Ubah durasi menjadi 10 detik (10000ms)
+    root.after(2000, stop_eating)  # Animasi makan berhenti setelah 10 detik
+
+
+def stop_eating():
+    global is_eating, food_sprite
+    is_eating = False
+    canvas.delete(food_sprite)
+    food_sprite = None
+    canvas.itemconfig(sprite, image=idle_frames[0])  # atau lanjutkan ke animasi idle loop
+    energy_ui.increase(20)
+
+
+
+def update_eat_animation():
+    global eat_frame_index
+    if is_eating:
+        canvas.itemconfig(sprite, image=eat_frames[eat_frame_index % len(eat_frames)])
+        eat_frame_index += 1
+
+        eat_frame_index = (eat_frame_index + 1) % len(eat_frames)
+        root.after(330, update_eat_animation)  # 100ms = 10 fps, ubah jadi 33 untuk 30 fps jika mau lebih halus
+
+def start_drinking():
+    global is_drinking, drink_frame_index, last_interaction_time, drink_sprite
+    if is_drinking:
+        return
+    is_drinking = True
+    drink_frame_index = 0
+    last_interaction_time = time.time()
+
+    # Dapatkan posisi karakter
+    coords = canvas.coords(sprite)
+    if coords:
+        x, y = coords
+        # Buat minuman muncul sedikit di bawah mulut karakter (sesuaikan dengan posisi karakter)
+        drink_x = x + 180 # offset kanan dikit
+        drink_y = y + 200  # offset bawah dikit
+
+        drink_sprite = canvas.create_image(drink_x, drink_y, image=drink_img, anchor=tk.NW)
+
+    update_drink_animation()
+
+    # Ubah durasi menjadi 5 detik (5000ms)
+    root.after(1500, stop_drinking)  # Animasi minum berhenti setelah 5 detik
+
+def move_drink_to_mouth():
+    global drink_x, drink_y
+    coords = canvas.coords(sprite)
+    if coords:
+        x, y = coords
+        # Gerakkan minuman ke mulut karakter secara perlahan
+        target_x = x + 20  # Posisi mulut karakter (disesuaikan dengan posisi karakter)
+        target_y = y + 40  # Posisi mulut karakter
+
+        # Hitung selisih posisi
+        dx = (target_x - drink_x) / 50  # Gerakan per update (lebih banyak angka lebih halus)
+        dy = (target_y - drink_y) / 50 # Gerakan per update (lebih banyak angka lebih halus)
+
+        def update_position():
+            global drink_x, drink_y
+            if abs(drink_x - target_x) > 1 or abs(drink_y - target_y) > 1:
+                drink_x += dx
+                drink_y += dy
+                canvas.coords(drink_sprite, drink_x, drink_y)
+                root.after(400, update_position)  # Update tiap 33ms untuk gerakan halus
+
+        update_position()
+
+
+
+def stop_drinking():
+    global is_drinking, drink_sprite
+    is_drinking = False
+    canvas.delete(drink_sprite)
+    drink_sprite = None
+    canvas.itemconfig(sprite, image=idle_frames[0])  # Kembali ke animasi idle setelah selesai
+    energy_ui.increase(10)
+
+def update_drink_animation():
+    global drink_frame_index
+    if is_drinking:
+        canvas.itemconfig(sprite, image=drink_frames[drink_frame_index % len(drink_frames)])
+        drink_frame_index += 1
+
+        root.after(400, update_drink_animation)  # 100ms = 10 fps, ubah jadi 33 untuk 30 fps jika ingin lebih halus
+
+
+def on_mouse_motion(event):
+    global is_dizzy, last_interaction_time
+
+    if is_drinking or is_pinching or is_falling or is_crawling or is_dizzy:
+        return  # Jangan ganggu animasi lain
+
+    x, y = event.x, event.y
+    # Misalnya kepala ada di bagian atas sprite (ganti dengan koordinat tepat)
+    if y < 50:  # Asumsikan tinggi kepala < 50px
+        is_dizzy = True
+        start_dizzy()
+    last_interaction_time = time.time()
+
+
+def on_mouse_motion(event):
+    global is_dizzy, is_shy, shy_frame_index, last_interaction_time
+
+    if is_drinking or is_pinching or is_falling or is_crawling:
+        return
+
+    character_coords = canvas.coords(sprite)
+    relative_x = event.x - character_coords[0]
+    relative_y = event.y - character_coords[1]
+
+    # Deteksi kepala untuk pusing (misalnya y < 50)
+    if not is_dizzy and relative_y < 50:
+        is_dizzy = True
+        start_dizzy()
+
+    # Deteksi dada untuk malu (misalnya y antara 100 dan 150)
+    if not is_shy and 100 <= relative_y <= 150 and 50 <= relative_x <= 150:
+        is_shy = True
+        shy_frame_index = 0
+        start_shy()
+
+    last_interaction_time = time.time()
+
+def play_idle_animation():
+    canvas.itemconfig(sprite, image=idle_frames[0])
+
+
+
+# === ANIMASI UTAMA ===
+def update_frame():
+    global frame_index, walk_frame_index, is_walking, walk_direction, waiting_to_walk_right, last_interaction_time
+    global is_falling, fall_frame_index, is_starting, start_frame_index
+    global drag_loop_counter, eye_loop_counter, eye_frame_index, drag_frame_index, current_mouse_anim
+    global is_pinching, is_playing_pinch_release, pinch_loop_index, pinch_release_index
+    global is_crawling, crawl_frame_index, crawl_direction, crawl_phase
+    global is_eating, eat_frame_index, last_interaction_time, food_sprite
+    global is_drinking, drink_frame_index, last_interaction_time, drink_sprite
+    global is_dizzy, dizzy_frame_index
+    global is_shy, shy_frame_index
+    global is_tired, tired_frame_index
+    global is_fainted, faint_frame_index
+    global is_sleeping, sleep_frame_index, last_interaction_time
+    global is_talking, current_loop
+    global mouth_talk_index
+    
+    now = time.time()
+
+
+    status = energy_ui.get_status()
+    is_sleeping = energy_ui.is_sleeping
+
+    if is_talking and now < talk_end_time:
+        if mouth_talk_index < len(mouth_talk_frames):
+            canvas.itemconfig(sprite, image=mouth_talk_frames[mouth_talk_index])
+            mouth_talk_index += 1
+            root.after(300, update_frame)
+            return
+        else:
+            is_talking = False
+            mouth_talk_index = 0
+     
+
+    # if is_starting:
+        # if start_frame_index < len(start_frames):
+            # canvas.itemconfig(sprite, image=start_frames[start_frame_index])
+            # start_frame_index += 1
+            # root.after(FRAME_DURATION, update_frame)    
+            # return   
+            
+        # else:
+            # is_starting = False
+            # frame_index = 0
+
+
+     # Prioritas: Cubit pipi
+    if is_pinching:
+        canvas.itemconfig(sprite, image=pinch_loop_frames[pinch_loop_index % len(pinch_loop_frames)])
+        pinch_loop_index += 1
+        root.after(FRAME_DURATION, update_frame)
+        return
+
+
+     # === PRIORITAS 2: SAAT MOUSE DITEKAN - DRAG/EYE LOOP ===
+    if is_mouse_down:
+        last_interaction_time = time.time()
+
+        if current_mouse_anim == "drag":
+            canvas.itemconfig(sprite, image=drag_frames[drag_frame_index % len(drag_frames)])
+            drag_frame_index += 1
+            if drag_frame_index >= len(drag_frames):
+                drag_frame_index = 0
+                drag_loop_counter += 1
+                if drag_loop_counter >= DRAG_LOOP_COUNT:
+                    drag_loop_counter = 0
+                    current_mouse_anim = "eye"
+
+        elif current_mouse_anim == "eye":
+            canvas.itemconfig(sprite, image=eye_move_frames[eye_frame_index % len(eye_move_frames)])
+            eye_frame_index += 1
+            if eye_frame_index >= len(eye_move_frames):
+                eye_frame_index = 0
+                eye_loop_counter += 1
+                if eye_loop_counter >= EYE_MOVE_LOOP:
+                    eye_loop_counter = 0
+                    current_mouse_anim = "drag"
+        root.after(FRAME_DURATION, update_frame)
+        return
+    
+     # === PRIORITAS 1: ANIMASI JATUH ===
+    if is_falling:
+        if fall_frame_index < len(fall_frames):
+            canvas.itemconfig(sprite, image=fall_frames[fall_frame_index])
+            fall_frame_index += 1
+            root.after(FRAME_DURATION, update_frame)
+            return
+        else:
+            is_falling = False
+            fall_frame_index = 0
+            frame_index = 0
+
+
+   # === PRIORITAS SLEEP ===
+    if is_sleeping:
+        
+        canvas.itemconfig(sprite, image=sleep_frames[sleep_frame_index % len(sleep_frames)])
+        sleep_frame_index += 1
+        root.after(FRAME_DURATION, update_frame)
+        return
+
+
+
+    # Prioritas makan
+    if is_eating:
+        coords = canvas.coords(sprite)
+        if coords:
+            x, y = coords
+            food_x = x + 130
+            food_y = y + 120
+            canvas.coords(food_sprite, food_x, food_y)
+
+        # Tampilkan frame animasi makan
+        canvas.itemconfig(sprite, image=eat_frames[eat_frame_index % len(eat_frames)])
+        eat_frame_index += 1
+
+        root.after(FRAME_DURATION, update_frame)
+        return
+
+
+    if is_drinking:
+        coords = canvas.coords(sprite)
+        if coords:
+            x, y = coords
+            drink_x = x + 120 # arah tinggi minuman
+            drink_y = y + 100 # arah lebar minuman
+            canvas.coords(drink_sprite, drink_x, drink_y)
+
+        # Tampilkan frame animasi minum
+        canvas.itemconfig(sprite, image=drink_frames[drink_frame_index % len(drink_frames)])
+        drink_frame_index += 1
+
+        root.after(FRAME_DURATION, update_frame)
+        return
+
+       # === PRIORITAS MERANGKAK ===
+    if is_crawling:
+        if crawl_direction == "left":
+            if crawl_phase == "prep":
+                if crawl_frame_index < len(crawl_prep_left_frames):
+                    canvas.itemconfig(sprite, image=crawl_prep_left_frames[crawl_frame_index])
+                    crawl_frame_index += 1
+                else:
+                    crawl_phase = "loop"
+                    crawl_frame_index = 0
+            elif crawl_phase == "loop":
+                canvas.itemconfig(sprite, image=crawl_left_frames[crawl_frame_index % len(crawl_left_frames)])
+                crawl_frame_index += 1
+                new_x = root.winfo_x() - MOVE_STEP
+                if new_x <= 0:
+                    root.geometry(f"+0+{root.winfo_y()}")
+                    crawl_phase = "post"
+                    crawl_frame_index = 0
+                else:
+                    root.geometry(f"+{new_x}+{root.winfo_y()}")
+            elif crawl_phase == "post":
+                if crawl_frame_index < len(crawl_post_left_frames):
+                    canvas.itemconfig(sprite, image=crawl_post_left_frames[crawl_frame_index])
+                    crawl_frame_index += 1
+                else:
+                    # Setelah bangkit dari crawl kiri, mulai crawl kanan
+                    start_crawl("right")
+        elif crawl_direction == "right":
+            screen_width = root.winfo_screenwidth()
+            character_width = canvas.winfo_width()
+            if crawl_phase == "prep":
+                if crawl_frame_index < len(crawl_prep_right_frames):
+                    canvas.itemconfig(sprite, image=crawl_prep_right_frames[crawl_frame_index])
+                    crawl_frame_index += 1
+                else:
+                    crawl_phase = "loop"
+                    crawl_frame_index = 0
+            elif crawl_phase == "loop":
+                canvas.itemconfig(sprite, image=crawl_right_frames[crawl_frame_index % len(crawl_right_frames)])
+                crawl_frame_index += 1
+                new_x = root.winfo_x() + MOVE_STEP
+                if new_x + character_width >= screen_width:
+                    root.geometry(f"+{screen_width - character_width}+{root.winfo_y()}")
+                    crawl_phase = "post"
+                    crawl_frame_index = 0
+                else:
+                    root.geometry(f"+{new_x}+{root.winfo_y()}")
+            elif crawl_phase == "post":
+                if crawl_frame_index < len(crawl_post_right_frames):
+                    canvas.itemconfig(sprite, image=crawl_post_right_frames[crawl_frame_index])
+                    crawl_frame_index += 1
+                else:
+                    is_crawling = False
+                    crawl_phase = None
+                    crawl_frame_index = 0
+                    last_interaction_time = time.time()
+        root.after(FRAME_DURATION, update_frame)
+        return
+   
+    if is_playing_pinch_release:
+        if pinch_release_index < len(pinch_release_frames):
+            canvas.itemconfig(sprite, image=pinch_release_frames[pinch_release_index])
+            pinch_release_index += 1
+            root.after(FRAME_DURATION, update_frame)
+            return
+        else:
+            is_playing_pinch_release = False
+            pinch_release_index = 0 
+            frame_index = 0
+
+    
+    # Prioritas: usap kepala
+    if is_dizzy:
+        global dizzy_frame_index
+        if dizzy_frame_index < len(dizzy_frames):
+            canvas.itemconfig(sprite, image=dizzy_frames[dizzy_frame_index])
+            dizzy_frame_index += 1
+        else:
+            is_dizzy = False
+            dizzy_frame_index = 0
+        root.after(FRAME_DURATION, update_frame)
+        return
+
+    # Prioritas: shy
+    if is_shy:
+        global shy_frame_index
+        if shy_frame_index < len(shy_frames):
+            canvas.itemconfig(sprite, image=shy_frames[shy_frame_index])
+            shy_frame_index += 1
+        else:
+            is_shy = False
+            shy_frame_index = 0
+        root.after(FRAME_DURATION, update_frame)
+        return
+
+    # Prioritas faint/pingsan
+    if status == "fainted":
+        # Loop animasi faint
+        is_fainted = True 
+        is_tired = False
+        canvas.itemconfig(sprite, image=faint_frames[faint_frame_index])
+        faint_frame_index = (faint_frame_index + 1) % len(faint_frames)
+        root.after(FRAME_DURATION, update_frame)
+        return
+
+    # Prioritas tired
+    elif status == "tired":
+        # Loop animasi tired
+        is_tired = True
+        is_fainted = False
+        canvas.itemconfig(sprite, image=tired_frames[tired_frame_index])
+        tired_frame_index = (tired_frame_index + 1) % len(tired_frames)
+        root.after(FRAME_DURATION, update_frame)
+        return
+    # seting animasi tired dan faint
+    else:
+        is_tired = False
+        is_fainted = False
+        tired_frame_index = 0
+        faint_frame_index = 0
+
+
+    # === PRIORITAS 3: JALAN KIRI / KANAN ===
+    if is_walking and walk_direction == "left":
+        canvas.itemconfig(sprite, image=walk_left_frames[walk_frame_index % len(walk_left_frames)])
+        walk_frame_index += 1
+        new_x = root.winfo_x() - MOVE_STEP
+        if new_x <= 0:
+            root.geometry(f"+0+{root.winfo_y()}")
+            is_walking = False
+            waiting_to_walk_right = True
+            root.after(WAIT_BEFORE_RIGHT, start_walk_right)
+        else:
+            root.geometry(f"+{new_x}+{root.winfo_y()}")
+
+    elif is_walking and walk_direction == "right":
+        canvas.itemconfig(sprite, image=walk_right_frames[walk_frame_index % len(walk_right_frames)])
+        walk_frame_index += 1
+        new_x = root.winfo_x() + MOVE_STEP
+        screen_width = root.winfo_screenwidth()
+        if new_x + idle_frames[0].width() >= screen_width:
+            root.geometry(f"+{screen_width - idle_frames[0].width()}+{root.winfo_y()}")
+            is_walking = False
+            last_interaction_time = time.time()
+        else:
+            root.geometry(f"+{new_x}+{root.winfo_y()}")
+
+    # === PRIORITAS 4: IDLE ===
+    else:
+        canvas.itemconfig(sprite, image=idle_frames[frame_index % len(idle_frames)])
+        frame_index += 1
+
+    # === CEK IDLE TIMEOUT ===
+    if not is_mouse_down and not is_walking and not waiting_to_walk_right and not is_falling and not is_crawling:
+        idle_elapsed = (now - last_interaction_time) * 1000
+        if idle_elapsed >= IDLE_TIMEOUT:
+
+            if random.choice([True, False]):
+                start_walk_left()
+            else:
+                if not is_crawling:
+                 start_crawl("left")
+
+    root.after(FRAME_DURATION, update_frame)
+
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+
+
+
+def speak_with_deepgram(text):
+    if not DEEPGRAM_API_KEY:
+        print("API Key tidak ditemukan")
+        return
+
+    url = (
+        "https://api.deepgram.com/v1/speak"
+        "?model=aura-2-amalthea-en"
+        "&encoding=mp3"
+    )
+    headers = {
+        "Authorization": f"Token {DEEPGRAM_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    json_data = {"text": text}
+
+    try:
+        response = requests.post(url, headers=headers, json=json_data)
+        if response.status_code == 200:
+            audio_data = io.BytesIO(response.content)
+            sound = AudioSegment.from_file(audio_data, format="mp3")
+
+            #duration_ms = len(sound)
+           
+
+            # Simpan ke file sementara
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+                temp_path = f.name
+                sound.export(temp_path, format="wav")
+
+            # Mainkan dengan pygame
+            # pygame.mixer.init()
+            pygame.mixer.music.load(temp_path)
+            pygame.mixer.music.play()
+            # while pygame.mixer.music.get_busy():
+                # time.sleep(0.1)
+                #start_talking di panggil after pygame.
+            start_talking(text)
+
+        else:
+            print("TTS Error:", response.status_code, response.text)
+    except Exception as e:
+        print(f"[TTS Error] {e}")
+
+
+def stop_talking():
+    global is_talking
+    is_talking = False
+    canvas.itemconfig(sprite, image=idle_frames[0])
+
+
+
+def update_mouth_animation():
+    global is_talking, mouth_talk_index
+    #now = time.time()
+    try:
+        if is_talking and pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+
+            canvas.itemconfig(sprite, image=mouth_talk_frames[mouth_talk_index % len(mouth_talk_frames)])
+            mouth_talk_index += 1
+            root.after(300, update_mouth_animation)
+        else:
+            stop_talking()
+    except pygame.error as e:
+        print(f"[ Animasi mouth Error] {e}")
+        stop_talking()
+
+def start_talking(response_text):
+    global is_talking, mouth_talk_index
+    mouth_talk_index = 0
+    is_talking = True
+    #duration_ms = max(20000, len(response_text) * 50)
+    #duration_ms = 20000
+    #talk_end_time = time.time() + duration_ms / 1000
+    print("AI Response:", response_text)
+    root.after(200, update_mouth_animation)
+
+def ask_ai_and_talk(question):
+    def worker():
+        response = ask_groq(question)
+        if response:
+            #start_talking(response)
+            threading.Thread(target=speak_with_deepgram, args=(response,), daemon=True).start()
+        else:
+            start_talking("gagal mendapatkan response dari AI")
+            threading.Thread(target=speak_with_deepgram, args=("gagal mendapatkan response dari AI",), daemon=True).start()
+    threading.Thread(target=worker, daemon=True).start()
+
+# Entry dan tombol input
+entry = tk.Entry(root, width=40)
+entry.pack(pady=10)
+
+def on_submit():
+    question = entry.get()
+    if question.strip():
+        ask_ai_and_talk(question)
+        entry.delete(0, tk.END)
+
+btn = tk.Button(root, text="Chat VUB", command=on_submit)
+btn.pack()
+
+#🧠 Penjelasan Perubahan
+#Masalah	Perbaikan
+#Fungsi speak_with_deepgram menerima fungsi worker, bukan teks	Pindahkan pemanggilan TTS ke dalam worker()
+#Pemanggilan ask_ai_and_talk() dua kali	Dihapus yang duplikat
+#Sinkronisasi animasi mulut dan suara	start_talking() dipanggil dulu, lalu speak_with_deepgram()
+
+
+
+
+def on_tired():
+    print("Karakter terlihat lelah.")
+    # Ganti animasi karakter ke animasi 'lelah' jika ada
+    # contoh: canvas.itemconfig(sprite, image=tired_frames[0])
+
+def on_faint():
+    print("Karakter pingsan!")
+    # Ganti animasi ke animasi 'pingsan'
+    # contoh: canvas.itemconfig(sprite, image=faint_frames[0])
+
+def on_recover():
+    print("Karakter sudah pulih.")
+    # Kembalikan ke animasi idle
+    # contoh: canvas.itemconfig(sprite, image=idle_frames[0])
+
+
+def start_sleep():
+    global is_sleeping, sleep_frame_index, last_interaction_time
+    if not is_sleeping:
+        is_sleeping = True
+        sleep_frame_index = 0
+        last_interaction_time = time.time()
+        print("karakter sleep")
+
+def stop_sleep():
+    global is_sleeping, sleep_frame_index
+    is_sleeping = False
+    sleep_frame_index = 0
+
+energy_ui = EnergyUI(
+    root,
+    tired_callback=on_tired,
+    faint_callback=on_faint,
+    recover_callback=on_recover,
+    sleep_start_callback=start_sleep,
+    sleep_stop_callback=stop_sleep
+)
+
+
+
+
+def play_tired_animation():
+    global is_tired, tired_frame_index
+
+    if not is_tired or energy_ui.get_energy() > 60:
+        return
+
+    is_tired = True
+
+def play_faint_animation():
+    global is_fainted, faint_frame_index
+
+    if not is_fainted or energy_ui.get_energy() > 0:
+        return
+
+    is_fainted = True
+
+def recover_energy():
+    global is_tired, is_fainted
+    is_tired = False
+    is_fainted = False
+    play_idle_animation()
+
+# Kirim fungsi ke EnergyUI
+energy_ui = EnergyUI(
+    root,
+    tired_callback=play_tired_animation,
+    faint_callback=play_faint_animation,
+    recover_callback=recover_energy
+)
+
+
+def start_dizzy():
+    global dizzy_frame_index
+    dizzy_frame_index = 0
+
+def start_shy():
+    global shy_frame_index
+    shy_frame_index = 0
+
+
+def start_walk_left():
+    global is_walking, walk_direction, walk_frame_index
+    is_walking = True
+    walk_direction = "left"
+    walk_frame_index = 0
+
+def start_walk_right():
+    global is_walking, walk_direction, walk_frame_index, waiting_to_walk_right
+    is_walking = True
+    walk_direction = "right"
+    walk_frame_index = 0
+    waiting_to_walk_right = False
+
+# === BIND EVENT ===
+canvas.bind("<ButtonPress-1>", start_move)
+canvas.bind("<B1-Motion>", do_move)
+canvas.bind("<Motion>", on_mouse_motion)
+canvas.bind("<ButtonRelease-1>", end_move)
+canvas.bind("<Button-3>", lambda e: start_crawl("left"))
+canvas.bind("<Button-2>", lambda e: start_eating())
+
+
+
+
+root.bind("m", lambda e: start_eating())
+root.bind("d", lambda e: start_drinking())  # Tekan 'd' untuk memulai animasi minum
+
+root.bind("<Left>", lambda e: start_crawl("left"))
+root.bind("<Right>", lambda e: start_crawl("right"))
+
+
+# === JALANKAN LOOP ===
+update_frame()
+root.mainloop()
