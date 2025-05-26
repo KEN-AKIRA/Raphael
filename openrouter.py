@@ -45,7 +45,7 @@ Jika informasi dari kamera tidak jelas atau tidak relevan, abaikan saja dan lanj
     
 local_model_path = "C:/Users/pc-i5/Desktop/Entitas destop/models/blip-image-captioning-base"
 
-processor = BlipProcessor.from_pretrained(local_model_path)
+processor = BlipProcessor.from_pretrained(local_model_path, use_fast=True)
 model = BlipForConditionalGeneration.from_pretrained(local_model_path)
 
 def describe_image(frame):
