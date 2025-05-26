@@ -4,9 +4,7 @@ import tkinter as tk
 from tkinter import font
 from PIL import Image, ImageTk
 import time
-#import random
-#from energy_ui import EnergyUI
-# from groq_client import ask_groq, describe_image
+from vision import analyze_camera_scene
 from openrouter import ask_openai, describe_image
 import threading
 import requests
@@ -81,8 +79,6 @@ START_FOLDER = "start_frames"
 
 SHY_FOLDER = "shy_frames"
 
-SLEEP_FOLDER = "sleep_frames"
-SLEEP_POST_FOLDER = "sleep_post_frames"
 MOUTH_TALK_FOLDER = "mouth_talk_frames"
 
 
@@ -139,7 +135,6 @@ start_frames = load_frames(START_FOLDER)
 
 shy_frames = load_frames(SHY_FOLDER)
 
-sleep_frames = load_frames(SLEEP_FOLDER)
 mouth_talk_frames = load_frames(MOUTH_TALK_FOLDER)
 
 
@@ -155,10 +150,10 @@ highlight = "#d4af37"
 try:
     medieval_font = ("old English Text MT", 14)
 except:
-    medieval_font = ("Garamond", 14, "italic")
+    medieval_font = ("Ariel", 14, "italic")
 
 #entry bergaya klasic
-entry = tk.Entry(root, width=40, bg=bg_color, fg=fg_color, font=medieval_font, relief="ridge", bd=4, insertbackground=fg_color)
+entry = tk.Entry(root, width=40, bg=bg_color, fg=fg_color, font="Ariel", relief="ridge", bd=4, insertbackground=fg_color)
 
 entry.pack(pady=10)
 
@@ -196,8 +191,7 @@ start_frame_index = 0
 
 is_shy = False
 shy_frame_index = 0
-is_sleeping = False
-sleep_frame_index = 0
+
 is_talking = False
 mouth_talk_index = 0
 talk_end_time = 0
@@ -207,8 +201,6 @@ face_detected = False
 last_detect_time = None
 
 
-
-
 # === EVENT DRAG ===
 def start_move(event):
     global is_mouse_down, last_interaction_time
@@ -216,10 +208,6 @@ def start_move(event):
     last_interaction_time = time.time()
     root.x = event.x_root
     root.y = event.y_root
-
-  
-
-
 
     
 def do_move(event):
@@ -236,8 +224,6 @@ def end_move(event):
     last_interaction_time = time.time()
 
     
-
-
 # def on_mouse_motion(event):
     # global is_shy, shy_frame_index, last_interaction_time
 
@@ -265,7 +251,6 @@ def update_frame():
     global frame_index
     global is_starting, start_frame_index
     global is_shy, shy_frame_index
-    global is_sleeping, sleep_frame_index, last_interaction_time
     global is_talking
     global mouth_talk_index
     
@@ -286,13 +271,7 @@ def update_frame():
              is_starting = False
              frame_index = 0
 
-   # === PRIORITAS SLEEP ===
-    if is_sleeping:
-        
-        canvas.itemconfig(sprite, image=sleep_frames[sleep_frame_index % len(sleep_frames)])
-        sleep_frame_index += 1
-        root.after(FRAME_DURATION, update_frame)
-        return
+
 
     # Prioritas: shy
     # if is_shy:
@@ -318,13 +297,6 @@ def update_frame():
 
 
 
-  
-   
-
-
-
-
-
 def capture_frame():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -336,8 +308,6 @@ def capture_frame():
         print("[Camera Error] Gagal membaca frame")
         return None
     return frame
-
-
 
 
 def get_time_context():
@@ -374,29 +344,33 @@ def ask_about_camera_image(question):
         print("[ERROR] Tidak bisa menangkap gambar dari kamera.")
         return
 
-    description = describe_image(image)
+    description = analyze_camera_scene(question)
     print("[DESKRIPSI GAMBAR]:", description)
 
     chat_history = get_chat_history()  # ambil dari memori
     full_chat_history_text = format_chat_history(chat_history)
 
     prompt = f"""
-Kamu adalah Raphael, asisten AI yang ramah dan komunikatif. Kamu ingat percakapan sebelumnya dengan pengguna.
+    Kamu adalah Raphael, asisten AI pribadi yang ramah, ekspresif, dan komunikatif. Kamu memiliki memori dari percakapan sebelumnya dengan pengguna.
 
-Berikut ini adalah riwayat percakapan:
-{full_chat_history_text} 
+    Berikut adalah ringkasan percakapan sebelumnya:
+    {full_chat_history_text}
 
-Dan Kamu juga melihat gambar dari kamera dan mendapat deskripsi berikut:
-"{description}"
+    Sekarang, pengguna menunjukkan sesuatu melalui kamera dan bertanya:
+    "{question}"
 
-Pengguna bertanya: "{question}"
+    Deskripsi otomatis dari gambar yang kamu lihat:
+    "{description}"
 
-Gunakan informasi di atas untuk melanjutkan percakapan secara natural, **jangan menebak objek spesifik yang tidak pasti terlihat**.
-Jika kamu tidak yakin dengan objeknya, cukup beri komentar umum yang tetap ramah dan nyambung dengan percakapan terakhir.
-Gunakan bahasa yang sama dengan pengguna terakhir, dan jangan memulai percakapan dari awal.
+    Tugasmu:
+    - Beri komentar tentang apa yang kamu lihat dari gambar tersebut, seolah-olah kamu benar-benar melihatnya.
+    - Hubungkan responmu dengan konteks percakapan sebelumnya jika memungkinkan.
+    - Jika objek dalam gambar tidak jelas atau tidak spesifik, tetap tanggapi secara ramah dan sopan tanpa membuat asumsi liar.
+    - Responmu harus singkat (maksimal 3 kalimat), hangat, dan terasa personal, seperti teman yang memperhatikan.
 
-Balas dengan satu paragraf singkat, tidak lebih dari 3 kalimat.
-"""
+    **Jangan memulai percakapan dari awal, lanjutkan saja. Gunakan gaya bahasa yang sesuai dengan pengguna sebelumnya.**
+    """
+
 
     response = ask_openai(prompt)
     print("[RESPON OPENAI]:", response)
@@ -405,27 +379,34 @@ Balas dengan satu paragraf singkat, tidak lebih dari 3 kalimat.
         add_to_history("assistant", response)
         threading.Thread(target=speak_with_deepgram, args=(response,), daemon=True).start()
 
+
 def on_submit():
     question = entry.get()
     if question.strip():
         lowered = question.lower()
-        camera_keyword = [
+        camera_keywords = [
             "ini apa",
             "apa ini",
+            "lihat aku",
             "coba lihat aku",
-            "lihatlah",
+            "tolong lihat aku",
+            "kamera hidup",
+            "aktifkan kamera",
+            "lihat wajahku",
+            "apakah aku terlihat",
+            "buka kamera sekarang",
             "lihat",
+            "komentari",
             "look",
-            "open camera",
-            "terlihat"
+            "melihat"
         ]
-        if any(keyword in lowered for keyword in camera_keyword):
+        # Cek apakah pertanyaan mengandung kata kunci kamera
+        # jika ada, panggil fungsi untuk menangkap gambar dari kamera
+        if any(keyword in lowered for keyword in camera_keywords):
             ask_about_camera_image(question)
         else:
             ask_ai_and_talk(question)
         entry.delete(0, tk.END)
-
-
 
 
 # vision auto response
@@ -508,10 +489,7 @@ def detect_emotion(image):
     return "senang"  # misal hardcoded dulu
 
 
-
-
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
-
 
 
 def speak_with_deepgram(text):
@@ -591,7 +569,7 @@ def start_talking(response_text):
     #duration_ms = max(20000, len(response_text) * 50)
     #duration_ms = 20000
     #talk_end_time = time.time() + duration_ms / 1000
-    print("AI Response:", response_text)
+    print("Raphael:", response_text)
     root.after(200, update_mouth_animation)
 
 def ask_ai_and_talk(question, as_role="user"):
@@ -622,11 +600,7 @@ def ask_ai_and_talk(question, as_role="user"):
     threading.Thread(target=worker, daemon=True).start()
 
 
-#🧠 Penjelasan Perubahan
-#Masalah	Perbaikan
-#Fungsi speak_with_deepgram menerima fungsi worker, bukan teks	Pindahkan pemanggilan TTS ke dalam worker()
-#Pemanggilan ask_ai_and_talk() dua kali	Dihapus yang duplikat
-#Sinkronisasi animasi mulut dan suara	start_talking() dipanggil dulu, lalu speak_with_deepgram()
+# start_talking di panggil setelah pygame sudah siap
 
 def start_sleep():
     global is_sleeping, sleep_frame_index, last_interaction_time
@@ -656,13 +630,9 @@ def stop_sleep():
     
 #)
 
-
-
-
 def start_shy():
     global shy_frame_index
     shy_frame_index = 0
-
 
 
 
@@ -671,8 +641,6 @@ canvas.bind("<ButtonPress-1>", start_move)
 canvas.bind("<B1-Motion>", do_move)
 # canvas.bind("<Motion>", on_mouse_motion)
 canvas.bind("<ButtonRelease-1>", end_move)
-
-
 
 
 
