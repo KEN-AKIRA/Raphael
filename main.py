@@ -408,7 +408,18 @@ Balas dengan satu paragraf singkat, tidak lebih dari 3 kalimat.
 def on_submit():
     question = entry.get()
     if question.strip():
-        if "ini apa" in question.lower() or "apa ini" in question.lower():
+        lowered = question.lower()
+        camera_keyword = [
+            "ini apa",
+            "apa ini",
+            "coba lihat aku",
+            "lihatlah",
+            "lihat",
+            "look",
+            "open camera",
+            "terlihat"
+        ]
+        if any(keyword in lowered for keyword in camera_keyword):
             ask_about_camera_image(question)
         else:
             ask_ai_and_talk(question)
