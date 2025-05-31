@@ -18,6 +18,10 @@ import datetime
 import time
 import json
 import os
+import speech_recognition as sr
+# from cv import capture_frame
+
+sr.Microphone()
 
 USER_DATA_FILE = "user.json"
 MAX_HISTORY = 50
@@ -58,11 +62,6 @@ load_user_data()
 
 
 
-
-
-
-
-
 pygame.mixer.init()
 
 # Load the face detection cascade classifier
@@ -81,13 +80,14 @@ SHY_FOLDER = "shy_frames"
 
 MOUTH_TALK_FOLDER = "mouth_talk_frames"
 
+# === INISIALISASI VARIABEL ===
 
+listening = False
 
 
 
 FRAME_DURATION = 200
 SCALE = 0.3
-#DRAG_LOOP_COUNT = 1
 
 IDLE_TIMEOUT = 80_000
 
@@ -117,6 +117,121 @@ def load_frames(folder):
     return frames
 
 
+# Fungsi Real-time Listening
+def listen_loop():
+    print("[DEBUG] Memulai listen_loop...")
+    global listening
+    recognizer = sr.Recognizer()
+    mic_index = 5  # ganti dengan indeks mic kamu
+
+    try:
+        mic = sr.Microphone(device_index=mic_index)
+        print(f"[DEBUG] Menggunakan microphone: {mic_index} - {mic.list_microphone_names()[mic_index]}")
+    except Exception as e:
+        print(f"[ERROR] Gagal mengakses microphone: {e}")
+        listening = False
+        return
+
+    recognizer.pause_threshold = 1.5
+
+    with mic as source:
+        recognizer.adjust_for_ambient_noise(source)
+        print("🎤 Mode real-time aktif...")
+
+    while listening:
+        with mic as source:
+            if not listening:
+                break
+            print("🎤 Dengarkan...")
+            try:
+                audio = recognizer.listen(source, timeout=10)
+                text = recognizer.recognize_google(audio, language="id-ID")
+                print(f"[STT] Kamu bilang: {text}")
+
+
+                if "stop" in text:
+                    print("⏹️ Mendengar 'stop', mematikan mode real-time.")
+                    stop_listening()
+                    break
+
+                entry.delete(0, tk.END)
+                entry.insert(0, text)
+                on_submit()  # ganti dengan aksi respons 
+
+            except sr.WaitTimeoutError:
+                print("⏳ Tidak terdengar suara.")
+            except sr.UnknownValueError:
+                print("😕 Tidak bisa mengenali suara.")
+            except sr.RequestError as e:
+                print(f"[ERROR] STT gagal: {e}")
+
+
+# Passive Wake Word Listener
+def passive_wake_listener():
+    try:
+        global listening
+        print("[DEBUG] Memulai passive_wake_listener...")
+        recognizer = sr.Recognizer()
+        mic = sr.Microphone(device_index=5)  # ganti dengan indeks mic 
+
+        with mic as source:
+            try:
+                print("🔊 Mengakses microphone...")
+                recognizer.adjust_for_ambient_noise(source)
+                print("🕯️ Menunggu kata kunci 'raphael'...")
+            except Exception as e:
+                print(f"[ERROR] Gagal mengakses microphone: {e}")
+                return
+
+        while True:
+            if listening:
+                break  # keluar dari loop jika sudah dalam mode real-time
+            with mic as source:
+                try:
+                    audio = recognizer.listen(source, timeout=5)
+                    text = recognizer.recognize_google(audio, language="id-ID").lower()
+                    print(f"[Passive Listener] Terdeteksi: {text}")
+
+                    if any(keyword in text for keyword in ["raphael", "rafael", "ra", "rafa"]):
+                        # Jika mendeteksi kata kunci "raphael", mulai mode real-time
+                        print("🔊 'Raphael' terdengar! Mode bicara aktif!")
+                        start_listening_thread()
+                        break # hentikan passive listener saat realtime mulai
+
+                except sr.WaitTimeoutError:
+                    continue
+                except sr.UnknownValueError:
+                    continue
+                except sr.RequestError as e:
+                    print(f"[ERROR Passive] STT gagal: {e}")
+                    continue
+    except Exception as e:
+        print(f"[ERROR Passive Listener] {e}")
+        # threading.Thread(target=passive_wake_listener, daemon=True).start()  # Restart listener jika error
+        
+
+
+# Tombol untuk mulai mode real-time
+def start_listening_thread():
+    global listening
+    if not listening:
+        listening = True
+        print("[DEBUG] Memulai thread listen_loop")
+        print("[info] daftar microphone yang tersedia:")
+        for i, mic_name in enumerate(sr.Microphone.list_microphone_names()):
+            print(f"Mic {i}: {mic_name}")
+        # Mulai thread untuk mendengarkan suara
+        threading.Thread(target=listen_loop, daemon=True).start()
+
+def stop_listening():
+    global listening
+    listening = False
+    print("⏹️ Mode real-time dimatikan.")
+    threading.Thread(target=passive_wake_listener, daemon=True).start()  # Mulai passive listener lagi
+
+
+
+
 # === INISIALISASI TKINTER ===
 TRANSPARENT_COLOR = "black"
 root = tk.Tk()
@@ -137,7 +252,17 @@ shy_frames = load_frames(SHY_FOLDER)
 
 mouth_talk_frames = load_frames(MOUTH_TALK_FOLDER)
 
+#===============================================
+# === WIDGETS DAN STYLING ===
 
+
+voice_btn = tk.Button(root, text="🎤 Bicara (Real-time)", command=start_listening_thread,
+                      bg="#444", fg="white", font=("Arial", 14), bd=4)
+voice_btn.pack()
+
+stop_btn = tk.Button(root, text="⏹️ Stop", command=stop_listening,
+                     bg="#aa2222", fg="white", font=("Arial", 14), bd=4)
+stop_btn.pack(pady=5)
 
 #warna dan font gaya klasik
 
@@ -297,17 +422,24 @@ def update_frame():
 
 
 
+
+
+
+
+# Global camera
+cap = cv2.VideoCapture(1)
+
 def capture_frame():
-    cap = cv2.VideoCapture(0)
+    global cap
     if not cap.isOpened():
         print("[Camera Error] Tidak bisa membuka kamera")
         return None
     ret, frame = cap.read()
-    cap.release()
     if not ret:
         print("[Camera Error] Gagal membaca frame")
         return None
     return frame
+
 
 
 def get_time_context():
@@ -334,6 +466,8 @@ def process_vision_response(response):
     if response:
         add_to_history("assistent", response, source="vision")
         threading.Thread(target=speak_with_deepgram, args=(response,), daemon=True).start()
+
+
 
 
 # vision realtime untuk bertanya 
@@ -585,8 +719,10 @@ def ask_ai_and_talk(question, as_role="user"):
         for entry in chat_history:
             prefix = "User: " if entry["role"] == "user" else "Assistant: "
             full_prompt += prefix + entry["content"] + "\n"
-
+        start = time.time()
         response = ask_openai(full_prompt.strip())
+        print("[DEBUG] Waktu respons AI:", time.time() - start, "detik")
+
         if response:
             add_to_history("assistent", response)
 
@@ -615,25 +751,10 @@ def stop_sleep():
     is_sleeping = False
     sleep_frame_index = 0
 
-#energy_ui = EnergyUI(
-    #root,
-   
-    #sleep_start_callback=start_sleep,
-   #sleep_stop_callback=stop_sleep
-#)
-
-
-
-# Kirim fungsi ke EnergyUI
-#energy_ui = EnergyUI(
-    #root,
-    
-#)
 
 def start_shy():
     global shy_frame_index
     shy_frame_index = 0
-
 
 
 # === BIND EVENT ===
@@ -641,7 +762,6 @@ canvas.bind("<ButtonPress-1>", start_move)
 canvas.bind("<B1-Motion>", do_move)
 # canvas.bind("<Motion>", on_mouse_motion)
 canvas.bind("<ButtonRelease-1>", end_move)
-
 
 
 # Dapatkan ukuran layar
@@ -659,7 +779,7 @@ y_offset = 10  # geser lebih ke bawah (nilai negatif agar makin ke atas)
 
 # Hitung posisi untuk bawah tengah layar
 x = (screen_width - window_width) // 2 + x_offset
-y = screen_height - window_height - 50 + y_offset # 50 px di atas taskbar, bisa kamu ubah
+y = screen_height - window_height - 50 + y_offset # 50 px di atas taskbar
 
 # Atur posisi jendela
 root.geometry(f"+{x}+{y}")
@@ -669,6 +789,9 @@ root.geometry(f"+{x}+{y}")
 
 vision_thread = threading.Thread(target=run_vision_openai_loop, daemon=True)
 vision_thread.start()
+print("[DEBUG] Memulai passive_wake_listener thread...")
+threading.Thread(target=passive_wake_listener, daemon=True).start()
+print("[DEBUG] passive_wake_listener thread dijalankan.")
 
 # === JALANKAN LOOP ===
 update_frame()
