@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Raphael AI Diagram</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    #svg-cable {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .box {
+      width: 140px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-600 text-cyan-300 font-mono flex items-center justify-center relative p-10">
+
+  <!-- SVG untuk kabel -->
+  <svg id="svg-cable"></svg>
+
+  <!-- Tombol toggle -->
+  <button onclick="toggleCable()" class="absolute top-5 right-5 px-4 py-2 bg-cyan-600 text-white rounded-lg z-10">Toggle Kabel</button>
+
+  <!-- Diagram sistem -->
+  <div class="relative w-[800px] h-[600px] z-10">
+    <div id="llm" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 box border border-purple-500 bg-purple-900/30 text-white rounded-xl shadow-md p-3 font-bold">LLM</div>
+
+    <div id="input" class="absolute top-10 left-1/2 -translate-x-1/2 box border border-cyan-500 bg-white/5 rounded-xl shadow-md p-3">Input Prompt</div>
+    <div id="vision" class="absolute top-1/4 left-16 box border border-cyan-500 bg-cyan-800/30 rounded-xl shadow-md p-3 text-white">Vision</div>
+    <div id="memory" class="absolute bottom-1/4 left-16 box border border-yellow-400 bg-yellow-500/10 text-white rounded-xl shadow-md p-3">Memory</div>
+    <div id="output" class="absolute top-1/4 right-16 box border border-cyan-500 bg-white/5 rounded-xl shadow-md p-3">Output</div>
+    <div id="tts" class="absolute bottom-1/4 right-16 box border border-yellow-400 bg-yellow-500/10 text-white rounded-xl shadow-md p-3">TTS</div>
+    <div id="model" class="absolute bottom-10 left-1/2 -translate-x-1/2 box border border-cyan-500 bg-white/5 rounded-xl shadow-md p-3">Model Karakter</div>
+  </div>
+
+  <script>
+    let cableVisible = true;
+    const svg = document.getElementById('svg-cable');
+
+    function toggleCable() {
+      cableVisible = !cableVisible;
+      svg.style.display = cableVisible ? 'block' : 'none';
+    }
+
+    function getEdgePoint(from, to) {
+      const rectFrom = from.getBoundingClientRect();
+      const rectTo = to.getBoundingClientRect();
+
+      const fromX = rectFrom.left + rectFrom.width / 2;
+      const fromY = rectFrom.top + rectFrom.height / 2;
+      const toX = rectTo.left + rectTo.width / 2;
+      const toY = rectTo.top + rectTo.height / 2;
+
+      // hitung arah
+      const dx = toX - fromX;
+      const dy = toY - fromY;
+
+      const angle = Math.atan2(dy, dx);
+      const offset = 70; // jarak dari pusat ke tepi box
+
+      return {
+        x1: fromX + Math.cos(angle) * offset,
+        y1: fromY + Math.sin(angle) * offset,
+        x2: toX - Math.cos(angle) * offset,
+        y2: toY - Math.sin(angle) * offset
+      };
+    }
+
+    function createLine(x1, y1, x2, y2) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", x1);
+      line.setAttribute("y1", y1);
+      line.setAttribute("x2", x2);
+      line.setAttribute("y2", y2);
+      line.setAttribute("stroke", "cyan");
+      line.setAttribute("stroke-width", 2);
+      line.setAttribute("marker-end", "url(#arrow)");
+      return line;
+    }
+
+    function drawCables() {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+      // Definisikan panah
+      const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+      marker.setAttribute("id", "arrow");
+      marker.setAttribute("markerWidth", "10");
+      marker.setAttribute("markerHeight", "10");
+      marker.setAttribute("refX", "8");
+      marker.setAttribute("refY", "3");
+      marker.setAttribute("orient", "auto");
+      marker.setAttribute("markerUnits", "strokeWidth");
+
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M0,0 L0,6 L9,3 z");
+      path.setAttribute("fill", "cyan");
+
+      marker.appendChild(path);
+      defs.appendChild(marker);
+      svg.appendChild(defs);
+
+      const llm = document.getElementById('llm');
+      const input = document.getElementById('input');
+      const vision = document.getElementById('vision');
+      const memory = document.getElementById('memory');
+      const output = document.getElementById('output');
+      const tts = document.getElementById('tts');
+      const model = document.getElementById('model');
+
+      const connections = [
+        [input, llm],
+        [vision, llm],
+        [memory, llm],
+        [memory, vision],
+        [llm, output],
+        [output, tts],
+        [tts, model],
+      ];
+
+      connections.forEach(([from, to]) => {
+        const { x1, y1, x2, y2 } = getEdgePoint(from, to);
+        svg.appendChild(createLine(x1, y1, x2, y2));
+      });
+    }
+
+    window.addEventListener('load', drawCables);
+    window.addEventListener('resize', drawCables);
+  </script>
+
+</body>
+</html>
