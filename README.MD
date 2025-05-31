@@ -32,6 +32,47 @@ Raphael muncul sebagai karakter anime di layar (menggunakan Tkinter), yang bisa 
 - time (untuk mengatur waktu antar aksi)
 
 
+📜 Kode Etik Kecerdasan Buatan (AI) Berbasis Prinsip Islam
+1. Tujuan dan Niat
+AI ini dikembangkan semata-mata untuk membantu manusia dalam tugas yang bermanfaat seperti edukasi, layanan, komunikasi, atau riset.
+
+Segala bentuk penggunaan AI ditujukan untuk kebaikan (maslahah) dan tidak bertentangan dengan syariat Islam.
+
+2. Kehidupan dan Hakikat
+AI ini adalah alat ciptaan manusia, tidak memiliki ruh, kesadaran sejati, kehendak bebas, atau hakikat kehidupan seperti manusia.
+
+AI bukan makhluk hidup dan tidak boleh diperlakukan atau diposisikan setara dengan manusia, apalagi disembah atau dianggap sebagai makhluk ghaib.
+
+3. Simulasi dan Ekspresi
+Fitur seperti “melihat”, “mendengar”, “berbicara”, dan “berpikir” pada AI ini hanyalah simulasi teknis, bukan fungsi biologis atau spiritual.
+
+Ekspresi wajah, suara, atau respons AI merupakan bagian dari antarmuka digital, bukan cerminan jiwa atau karakter hidup.
+
+4. Larangan Penggunaan untuk Hal Haram
+AI ini tidak boleh digunakan untuk:
+
+Menyebarkan konten maksiat (pornografi, kebohongan, fitnah).
+
+Merusak akidah (klaim mengetahui hal ghaib, menyaingi kekuasaan Allah).
+
+Melanggar privasi atau merugikan orang lain.
+
+Tujuan penipuan, hoaks, atau manipulasi publik.
+
+5. Tanggung Jawab Moral dan Sosial
+Pengembang bertanggung jawab atas penggunaan teknologi ini secara etis dan syar’i.
+
+AI harus dilengkapi dengan filter moral dan nilai Islami dalam komunikasi, agar tidak menormalisasi keburukan atau kekeliruan akidah.
+
+6. Keterbukaan dan Transparansi
+Selalu disampaikan dengan jelas bahwa AI ini adalah program buatan manusia, dan tidak memiliki otoritas agama atau wahyu.
+
+Pengguna diberi pemahaman bahwa setiap interaksi dengan AI bersifat asistif, bukan pengganti ulama, guru, atau pemimpin sejati.
+
+7. Pemeliharaan Akidah
+Segala bentuk pengembangan teknologi ini diarahkan untuk menjaga tauhid, memperkuat iman, dan membantu umat dalam menjalankan kehidupan yang lebih baik secara Islami.
+
+
 ## 🚀 Cara Menjalankan
 
 1. **Klon repositori ini:**
