@@ -6,6 +6,7 @@ from PIL import Image, ImageTk
 import time
 from vision import analyze_camera_scene
 from openrouter import ask_openai, describe_image
+#from ollama import ask_ollama, describe_image
 import threading
 import requests
 from pydub import AudioSegment
@@ -25,6 +26,8 @@ import psutil
 import tempfile
 import wave
 from deep_translator import GoogleTranslator
+import signal
+import sys
 
 
 
@@ -630,6 +633,7 @@ def ask_about_camera_image(question):
     - Hubungkan responmu dengan konteks percakapan sebelumnya jika memungkinkan.
     - Jika objek dalam gambar tidak jelas atau tidak spesifik, tetap tanggapi secara ramah dan sopan tanpa membuat asumsi liar.
     - Responmu harus singkat (maksimal 3 kalimat), hangat, dan terasa personal, seperti teman yang memperhatikan.
+    - Use English for response user
 
     **Jangan memulai percakapan dari awal, lanjutkan saja. Gunakan gaya bahasa yang sesuai dengan pengguna sebelumnya.**
     """
@@ -637,6 +641,14 @@ def ask_about_camera_image(question):
 
     response = ask_openai(prompt)
     print("[RESPON OPENAI]:", response)
+    # ✅ Tambahkan translate di sini
+    try:
+        translated = GoogleTranslator(source='en', target='id').translate(response)
+        print(f"[Translate]: {translated}")
+    except Exception as e:
+        print("[Translate Error]", e)
+        translated = response  # fallback
+
     if response:
         add_to_history("user", question)
         add_to_history("assistant", response)
@@ -711,6 +723,7 @@ Saat ini kamu melihat pengguna melalui kamera:
 - Deskripsi visual (hasil computer vision): {caption}
 - Ekspresi wajah pengguna: {emotion}
 - Waktu sekarang: {time_context}
+- Use English for response user
 
 Gunakan informasi di atas untuk melanjutkan percakapan secara natural, **jangan menebak objek spesifik yang tidak pasti terlihat**.
 Jika kamu tidak yakin dengan objeknya, cukup beri komentar umum yang tetap ramah dan nyambung dengan percakapan terakhir.
@@ -721,8 +734,19 @@ Balas dengan satu paragraf singkat, tidak lebih dari 3 kalimat.
             response = ask_openai(prompt)
 
             if response:
-                process_vision_response(response)
+
+                # ✅ Tambahkan translate di sini
+                try:
+                    translated = GoogleTranslator(source='en', target='id').translate(response)
+                    print(f"[Translate]: {translated}")
+                except Exception as e:
+                    print("[Translate Error]", e)
+                    translated = response  # fallback
+
+                process_vision_response(response)  # tetap pakai respons asli (English)
                 time.sleep(10)
+                #process_vision_response(response)
+                #time.sleep(10)
 
         else:
             print("[INFO] Tidak ada wajah terdeteksi, skip...")
@@ -1050,11 +1074,14 @@ def ask_ai_and_talk(question, as_role="user"):
             full_prompt += f"- Berita internasional terbaru tahun 2025: {news_info}\n"
 
         # ✅ Tambahkan instruksi anti-*...* di akhir
-        full_prompt += "\n\nInstruksi penting untuk Assistant:\n" \
-               "Jangan menulis aksi atau ekspresi fisik dalam tanda bintang (*...*).\n" \
-               "Hapus semua tanda bintang jika ada.\n" \
-               "Fokus hanya pada percakapan, tanpa narasi atau deskripsi tindakan.\n" \
-               "Ikuti ini pada setiap jawaban tanpa terkecuali."
+        full_prompt += "\n\nInstruksi penting untuk Assistant:\n"
+        "1. Jangan menulis aksi atau ekspresi fisik dalam tanda bintang (*...*).\n"
+        "2. Hapus semua tanda bintang jika ada.\n"
+        "3. Jangan pernah menampilkan reasoning internal atau teks dalam <think>...</think>.\n"
+        "4. Fokus hanya pada percakapan langsung, tanpa narasi atau deskripsi tindakan.\n"
+        "5. Jawaban harus singkat, relevan dengan pertanyaan terakhir pengguna, "
+        "dan tidak bertele-tele.\n"
+        "6. Ikuti instruksi ini pada setiap jawaban tanpa terkecuali."
 
         # Minta respons dari AI
         start = time.time()
@@ -1142,5 +1169,38 @@ threading.Thread(target=passive_wake_listener, daemon=True).start()
 print("[DEBUG] passive_wake_listener thread dijalankan.")
 
 # === JALANKAN LOOP ===
-update_frame()
-root.mainloop()
+#update_frame()
+#root.mainloop()
+
+def handle_exit(sig, frame):
+    print("\n[EXIT] Menutup aplikasi...")
+    try:
+        if cap and cap.isOpened():
+            cap.release()  # lepas kamera
+            print("[INFO] Kamera dilepas")
+    except:
+        pass
+
+    try:
+        pygame.mixer.quit()  # stop audio
+        print("[INFO] Pygame mixer dimatikan")
+    except:
+        pass
+
+    try:
+        root.destroy()  # tutup Tkinter
+        print("[INFO] Tkinter GUI ditutup")
+    except:
+        pass
+
+    sys.exit(0)
+
+# pasang handler Ctrl+C
+signal.signal(signal.SIGINT, handle_exit)
+
+# === jalankan tkinter mainloop dengan aman ===
+try:
+    update_frame()  # jalankan animasi
+    root.mainloop()
+except KeyboardInterrupt:
+    handle_exit(None, None)
