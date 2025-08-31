@@ -16,7 +16,6 @@ import pygame
 import tempfile
 import cv2
 import datetime
-import time
 import json
 import os
 import speech_recognition as sr
@@ -319,13 +318,39 @@ idle4_frames = load_frames(IDLE4_FOLDER)
 # === WIDGETS DAN STYLING ===
 
 
-voice_btn = tk.Button(root, text="🎤 Bicara (Real-time)", command=start_listening_thread,
-                      bg="#444", fg="white", font=("Arial", 14), bd=4)
-voice_btn.pack()
+# === TOMBOL MODERN ===
+def style_modern_button(btn, normal_bg, hover_bg):
+    btn.config(
+        relief="flat",        # biar rata (flat)
+        bd=0,                 # tanpa border
+        bg=normal_bg,
+        fg="white",
+        activebackground=hover_bg,
+        activeforeground="white",
+        font=("Segoe UI", 12, "bold"),
+        padx=15, pady=8
+    )
+    # efek hover
+    def on_enter(e): btn.config(bg=hover_bg)
+    def on_leave(e): btn.config(bg=normal_bg)
+    btn.bind("<Enter>", on_enter)
+    btn.bind("<Leave>", on_leave)
 
-stop_btn = tk.Button(root, text="⏹️ Stop", command=stop_listening,
-                     bg="#aa2222", fg="white", font=("Arial", 14), bd=4)
-stop_btn.pack(pady=5)
+# Ganti definisi tombol lama pakai ini
+
+# Buat frame khusus untuk tombol biar sejajar
+btn_frame = tk.Frame(root, bg="black")  # bg biar nyatu sama root kalau perlu
+btn_frame.pack(pady=5)
+
+voice_btn = tk.Button(btn_frame, text="🔊 Speak", command=start_listening_thread)
+voice_btn.pack(side="left", padx=5)
+style_modern_button(voice_btn, normal_bg="#4199a9", hover_bg="#0AF511")
+
+stop_btn = tk.Button(btn_frame, text="⏹️ Stop", command=stop_listening)
+stop_btn.pack(side="left", padx=5)
+style_modern_button(stop_btn, normal_bg="#5E1A1A", hover_bg="#26dc51")
+
+
 
 #warna dan font gaya klasik
 
@@ -340,10 +365,29 @@ try:
 except:
     medieval_font = ("Ariel", 14, "italic")
 
-#entry bergaya klasic
-entry = tk.Entry(root, width=40, bg=bg_color, fg=fg_color, font="Ariel", relief="ridge", bd=4, insertbackground=fg_color)
-
+# Entry bergaya klasik dengan placeholder
+placeholder = "Ask anything..."
+entry = tk.Entry(root, width=40, bg=bg_color, fg=fg_color, font="Arial", 
+                 relief="ridge", bd=4, insertbackground=fg_color)
 entry.pack(pady=10)
+
+# Set placeholder awal
+entry.insert(0, placeholder)
+entry.config(fg="grey")  # warna abu-abu biar kayak transparan
+
+def on_focus_in(event):
+    if entry.get() == placeholder:
+        entry.delete(0, tk.END)
+        entry.config(fg=fg_color)
+
+def on_focus_out(event):
+    if entry.get() == "":
+        entry.insert(0, placeholder)
+        entry.config(fg="grey")
+
+entry.bind("<FocusIn>", on_focus_in)
+entry.bind("<FocusOut>", on_focus_out)
+
 
 entry.bind("<Return>", lambda event: on_submit())
 
@@ -352,7 +396,17 @@ entry.bind("<Return>", lambda event: on_submit())
 btn = tk.Button(root, text="Raphael", command=lambda: on_submit(), 
                 bg=button_color, fg="white", font=medieval_font,
                 relief="raised", bd=4, activebackground=highlight)
-btn.pack()
+btn.pack(pady=10)
+
+# Tambahkan efek hover manual
+def on_enter(e):
+    btn["background"] = "#06eaff"  # warna saat hover
+
+def on_leave(e):
+    btn["background"] = button_color  # balik ke warna asli
+
+btn.bind("<Enter>", on_enter)
+btn.bind("<Leave>", on_leave)
 
 def on_submit():
     question = entry.get()
